@@ -8,6 +8,6 @@ This REAME file is for recording purpose.It will include the content of the cour
 ### Week 1
 **Github tutorial**
 <ol>
-<li>Create Github repo</li>
+<li>Create GitHub repo</li>
 <li>Write README with markdown</li>
 </ol>
