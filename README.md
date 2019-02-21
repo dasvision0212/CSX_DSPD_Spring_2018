@@ -1,7 +1,7 @@
 # CSX_DSPD_Spring_2018
 
 ## Purpose
-This REAME file is for recording purpose.It will include the content of the course. 
+This REAME file is for recording purpose. It will include the content of the course. 
 
 ## Content
 
