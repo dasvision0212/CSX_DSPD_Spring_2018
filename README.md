@@ -1,8 +1,11 @@
 # CSX_DSPD_Spring_2018
 
-This file is for recording purpose.  
+## Purpose
+This REAME file is for recording purpose.It will include the content of the course. 
 
-## Week 1
+## Content
+
+### Week 1
 **Github tutorial**
 <ol>
 <li>Create Github repo</li>
