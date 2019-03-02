@@ -12,5 +12,8 @@ This REAME file is for recording purpose. It will include the content of the cou
 <li>Write README with markdown</li>
 </ol>
 
-**Homework: Example from class assistant**
-
+**Homework:**Example from class assistant
+<ol>
+<li>Read example from CA</li>
+<li>Extract part of the code and exercise</li>
+</ol>
