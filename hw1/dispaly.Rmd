@@ -1,0 +1,128 @@
+---
+title: "CS+X DSOD Homework 1"
+output: html_notebook
+---
+#Motivation
+When it comes to the **election day**, it is always reminds me the time I spent with my family sitting on the couch, whaching the live-time votes report from the news media while having the dinner. \ \ \ It is a common phenomenon for the medai having the "real-time" report of how many votes had counted in Taiwan- almost all channel will be displaying the charts for votes. \ \ \ Since this kind of information is not only hard to access but also influential in a lot of way nationalwisel, we have to be dubious and prepared for **the possibility of misinformation**.
+
+<br/>
+
+#Target
+We choose the election of Taipei mayor in **2018 Taiwanese municipal elections** as our background. By comparing the statistic media had reported at the time with much more trust-worthy resource meanwhile, we're intended to find out whether the media reported fairly or just came up with the information from nowhere.
+
+<br/>
+
+#Method
+We manually collected the votes number for Taipei mayor election from several media footage during the elction - the numbers were noted every 5 minute from 16:00 to 02:40 in the next day. We then compare all the data from media we selected with 2 trustworthy resource:
+
+
+1. Footage from Public Television Service
+2. Open data from Central Election Commission
+
+We are looking for statistical evidence to prove the misinformation from media.
+
+<br/>
+
+##PTS
+
+```{r}
+
+```
+
+
+
+
+##CEC
+The official data for election is published at [Official Site](http://db.cec.gov.tw/). We first manually extract the data for Taipei mayor election into the Exel file, and read it:
+```{r}
+CEC_endtime <- read.csv("CEC_time.csv", as.is=TRUE)
+CEC_endtime <- CEC_endtime[CEC_endtime$X == "taipei",]
+CEC_endtime
+
+CEC_vote <- read.csv("CEC_vote.csv")
+CEC_vote
+```
+
+<br/>
+
+###Sort out data
+Because the data set only contains the total votes and the end time for each observation post, we have to manipulate the data in order to be compared with others. **We assume all post begins the procedure in time and in which the counting volocity was fixed.** We then use the average velocity for each post to build a model where all timely votes were summed together to form a total votes for every 5 minutes.
+```{r}
+##convert the 24-based into how many 5 minutes after 16:00
+standardlize_unit <- function(t){
+  hour <- as.integer(substr(t,1,2))
+  min  <- as.integer(substr(t,4,5))
+  for(i in 1:length(hour)){
+    if(hour[i] < 8){
+      hour[i] = hour[i]+24
+    }
+  }
+  
+  hour = hour-16
+  return ((60*hour+min)/5)
+}
+
+##the end time fro each observation post
+end_time <- standardlize_unit(CEC_endtime$time)
+head(end_time)
+
+##the rate for each observation post
+rate <- CEC_vote[,c(2,4)]/end_time
+rate
+```
+now we can build a model with timely total votes.
+```{r}
+sum_model <- function(r, t){
+  total <- vector(mode = "numeric", length = 128)
+  length(total)
+  #time
+  for(i in 1:129){
+    
+    #station
+    for(j in 1:length(r)){
+      if(t[j] > i){
+        total[i] = total[i] + i*r[j]
+      } else if(t[j] < i) {
+        total[i] = total[i] + t[j]*r[j]
+        
+      }
+      if(floor(t[j]) == i) {
+        total[i] = total[i] +  (t[j]-i)*r[j]
+      }
+    }
+  }
+  return (total)
+}
+
+total_vote <- list(Ding  = sum_model(rate$ding , end_time   ), Ke = sum_model(rate$ke, end_time))
+total_vote
+```
+To make life easier, we first compute a 24hour-based time line to be our time variable before ploting
+```{r}
+
+##time-line vector
+
+clock24 <- function(){
+  t <- vector(mode = "character",length=129)
+  h <- as.character(floor(c(192:287,0:32)/12))
+  m <- as.character(5*(c(0:128)%%12))
+  for(i in 1:129){
+    if(h[i] < "9"){
+      h[i] = paste("0",h[i],sep="")
+    }
+    if(as.integer(m[i]) < 10){
+      t[i] = paste(h[i],":0",m[i],sep="")
+    } else {
+      t[i] = paste(h[i],":" ,m[i],sep="")
+    }
+  }
+  return (t)
+}
+time <- clock24()
+
+## plot the number of votes based on time
+plot.new()
+plot.window(xlim=c(0,129), ylim=c(0,600000))
+plot(total_vote$Ding,time,xlim = 129,xlim = c(0,129),add=TRUE)
+```
+
