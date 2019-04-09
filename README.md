@@ -19,8 +19,16 @@ This REAME file is for recording purpose. It will include the content of the cou
 </ol>
 
 ### Week2
-**data analysis and basic technique for visualization**
+**data analysis**
 1. choose a topic: 
-      * the media misinformation - the election of Taipei mayor in *2018 Taiwanese municipal elections*</li>
-2. Use R languge to sort the data and do some analysis
+      * the media misinformation - the election of Taipei mayor in *2018 Taiwanese municipal elections*
+2. Use R languge to sort the data.
 
+### Week3
+**data analysis and technique for visualization**
+1. Use package *ggplot2* to conduct the data visualization.
+
+### Week4~6
+**setting up statistical hypothesis**
+1. with the given data and grapgh, propose hypothesis and method.
+2. context and maintain.
