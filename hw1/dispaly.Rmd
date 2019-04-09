@@ -1,52 +1,86 @@
 ---
-title: "CS+X DSOD Homework 1"
+title: "CS+X DSOD Homework 1,2 and 3"
 output: html_notebook
 ---
 #Motivation
-When it comes to the **election day**, it is always reminds me the time I spent with my family sitting on the couch, whaching the live-time votes report from the news media while having the dinner. \ \ \ It is a common phenomenon for the medai having the "real-time" report of how many votes had counted in Taiwan- almost all channel will be displaying the charts for votes. \ \ \ Since this kind of information is not only hard to access but also influential in a lot of way nationalwisel, we have to be dubious and prepared for **the possibility of misinformation**.
+When it comes to the **election day**, it always reminds me the time I spent with my family, sitting on the couch, whaching the live-time votes report from the news media while having the dinner. \ \ \ It is a common phenomenon, or a costom in a way, for Taiwanese to watch the news on the election night, just like watching *super bowl* on the thanksgiving day.
+<br/>
+The real-time votes report seems to be and entertainment, but this kind of information is essential in a lot of ways. Also, the access to votes is difficult for ordinary cilivians. We have to be dubious of the seemingly credible information provided by the media, and be prepared for **the possibility of misinformation**.
 
 <br/>
 
 #Target
-We choose the election of Taipei mayor in **2018 Taiwanese municipal elections** as our background. By comparing the statistic media had reported at the time with much more trust-worthy resource meanwhile, we're intended to find out whether the media reported fairly or just came up with the information from nowhere.
+We choose the election of Taipei mayor in **2018 Taiwanese municipal elections** as topic. By comparing **the information provided by media**  with **that from much more trust-worthy resource**, we're intended to find out whether the media reported fairly or just came up with the numbers from nowhere. Or in the statistical term:
+$$H_0: the\  number\  of\ votes\ provided\ by\ media\ is\ credible$$
+$$H_1: media\ lies$$
 
 <br/>
 
 #Method
-We manually collected the votes number for Taipei mayor election from several media footage during the elction - the numbers were noted every 5 minute from 16:00 to 02:40 in the next day. We then compare all the data from media we selected with 2 trustworthy resource:
+We manually collected the data of votes for Taipei mayor election from several media 
 
 
-1. Footage from Public Television Service
-2. Open data from Central Election Commission
 
-We are looking for statistical evidence to prove the misinformation from media.
 
-<br/>
+during the elction - the numbers were noted every 5 minute from 16:00 to 02:40 in the next day. We then compare all the data from media with what we selected as trustworthy resource, which are:
 
-##PTS
+
+1. **Footage from Public Television Service** ,and
+2. **Open data from Central Election Commission**
+
+We are then looking forward to statistical evidence to prove whether the media is credible for election report.
 
 ```{r}
-
+##library for later graphing
+install.packages("tidyverse")
+library(tidyverse)
 ```
 
 
 
+##data from PTS
+These data was obtained from the footage of PTS on the election day.
 
-##CEC
+```{r}
+#PTS data
+PTS <- read.csv("data/PTS_vote.csv")
+
+##time line in 24-hour based
+time = reorder(PTS$time, c(1:129))
+
+PTS <- data.frame(time = time, Ding = PTS$PTS_1, Ko = PTS$PTS_2)
+ggplot(data = PTS) +
+  geom_line(mapping =  aes(x = time, y = Ding, group = 1)) +
+  labs(x = "time ", y = "numbers of votes", 
+       title = "Votes for Ding (PTS)", caption = "(data from PTS live-stream)") +
+  scale_x_discrete(breaks = PTS$time[seq(1, 129, by = 10)]) +
+  scale_y_continuous(labels= scales::comma)
+  
+```
+
+
+##data form CEC
 The official data for election is published at [Official Site](http://db.cec.gov.tw/). We first manually extract the data for Taipei mayor election into the Exel file, and read it:
 ```{r}
-CEC_endtime <- read.csv("CEC_time.csv", as.is=TRUE)
+CEC_endtime <- read.csv("data/CEC_time.csv", as.is=TRUE)
 CEC_endtime <- CEC_endtime[CEC_endtime$X == "taipei",]
 CEC_endtime
 
-CEC_vote <- read.csv("CEC_vote.csv")
+CEC_vote <- read.csv("data/CEC_vote.csv")
 CEC_vote
 ```
 
 <br/>
 
-###Sort out data
-Because the data set only contains the total votes and the end time for each observation post, we have to manipulate the data in order to be compared with others. **We assume all post begins the procedure in time and in which the counting volocity was fixed.** We then use the average velocity for each post to build a model where all timely votes were summed together to form a total votes for every 5 minutes.
+###model for CEC's data
+Because the data only contains the total votes and the finished time for each observation post, we have to find anothe wayr to build the data in order to be compared with others. 
+
+We assume :
+    
+      1. the volocity of counting the valid was fixed,
+      2. all post begins the procedure in time, and
+      3.the volocity of counting the valid was fixed
+. We then use the average rate of velocity for each post to build a model where all timely votes were summed together to form a total votes model for every 5 minutes.
 ```{r}
 ##convert the 24-based into how many 5 minutes after 16:00
 standardlize_unit <- function(t){
@@ -57,8 +91,8 @@ standardlize_unit <- function(t){
       hour[i] = hour[i]+24
     }
   }
-  
-  hour = hour-16
+  ##official procedure starts from 17:00
+  hour = hour-17
   return ((60*hour+min)/5)
 }
 
@@ -70,13 +104,17 @@ head(end_time)
 rate <- CEC_vote[,c(2,4)]/end_time
 rate
 ```
-now we can build a model with timely total votes.
+
+
+now we have built a model with timely total votes by accoumulating all instantaneous votes in accordance with time.
+
+
 ```{r}
 sum_model <- function(r, t){
-  total <- vector(mode = "numeric", length = 128)
+  total <- vector(mode = "numeric", length = 116) ##17:00~02:40
   length(total)
   #time
-  for(i in 1:129){
+  for(i in 1:117){
     
     #station
     for(j in 1:length(r)){
@@ -93,36 +131,154 @@ sum_model <- function(r, t){
   }
   return (total)
 }
-
-total_vote <- list(Ding  = sum_model(rate$ding , end_time   ), Ke = sum_model(rate$ke, end_time))
-total_vote
+window12 <- vector(mode = "double", length = 12)
+CEC <- data.frame(Ding  = c(window12, sum_model(rate$ding , end_time)), Ke = c(window12,sum_model(rate$ke, end_time)))
 ```
-To make life easier, we first compute a 24hour-based time line to be our time variable before ploting
+
+```{r}
+## plot the number of votes based on time
+ggplot(data = CEC) +
+  geom_line(mapping =  aes(x = t, y = Ding, group = 1)) + 
+  labs(x = "time ", y = "numbers of votes", 
+       title = "Votes for Ding (CEC)", caption = "(data from CEC with assumed model)") +
+  scale_x_discrete(breaks = PTS$time[seq(1, 129, by = 10)]) +
+  scale_y_continuous(labels= scales::comma)
+```
+
+
+
+
+##Records of votes from different media
+
+With two trustworthy resource to benchmarch with, we then look into the 4 sample media needed to be compared. They are **Taiwan Television Enterprise**, **Sanlih E-Television**, **China Television Company** and **Eastern Home Shopping television**, respectively.
+
+```{r}
+media <- read.csv("data/media_vote.csv")
+media_Ding <- data.frame(TTV = media$TTV_1, SET = media$SET_1, CTV = media$SET_1, EHS = media$EHS_1)
+  
+media_Ko   <- data.frame(TTV = media$TTV_2, SET = media$SET_2, CTV = media$SET_2, EHS = media$EHS_2)
+
+###vote for Ding, Shou-chung and Ko Wen-je
+ggplot(data = media_Ding) +
+  geom_line(mapping =  aes(x = time, y = TTV, group = 1, size = "4"),color = "#3333CC") +
+  geom_line(mapping =  aes(x = time, y = SET, group = 1, size = "4"),color = "#0099CC") +
+  geom_line(mapping =  aes(x = time, y = CTV, group = 1, size = "4"),color = "#00FF66") +
+  geom_line(mapping =  aes(x = time, y = EHS, group = 1, size = "4"),color = "#66FFFF") +
+
+ 
+  labs(x = "time ", y = "numbers of votes", 
+       title = "Votes for Ding (CEC)", caption = "(data from CEC with assumed model)") +
+  scale_x_discrete(breaks = PTS$time[seq(1, 129, by = 10)]) +
+  scale_y_continuous(labels= scales::comma)
+```
+
+
+---
+
+#Comparision
+
+##compare with PTS
+I take PTS as one of the realible source of imformation for several reasons. It is a public boardcasting, and thanks to its durable reputation and the special way of financial soruce of funding, it is unlikely to has incentive to stream false information. All in all, PTS is more credible in a lot of sense.
+
+
+When we take a look at the graph below, we can see an obvious over-estimation for the votes of *Ting* from the rest of the media(other than red). 
+
 ```{r}
 
-##time-line vector
+ggplot(data = media_Ding) +
+  geom_line(mapping =  aes(x = time, y = TTV, group = 1, size = "4"),color = "#3333CC") +
+  geom_line(mapping =  aes(x = time, y = SET, group = 1, size = "4"),color = "#0099CC") +
+  geom_line(mapping =  aes(x = time, y = CTV, group = 1, size = "4"),color = "#00FF66") +
+  geom_line(mapping =  aes(x = time, y = EHS, group = 1, size = "4"),color = "#66FFFF") +
+  
+  geom_line(mapping =  aes(x = time, y = PTS$Ding, group =1, size = "4"), color="#CC0000")+
+ 
+  labs(x = "time ", y = "numbers of votes", title = "Votes for Ding (CEC)", caption = "(data from media)") +
+  scale_x_discrete(breaks = PTS$time[seq(1, 129, by = 10)]) +
+  scale_y_continuous(labels= scales::comma)
 
-clock24 <- function(){
-  t <- vector(mode = "character",length=129)
-  h <- as.character(floor(c(192:287,0:32)/12))
-  m <- as.character(5*(c(0:128)%%12))
-  for(i in 1:129){
-    if(h[i] < "9"){
-      h[i] = paste("0",h[i],sep="")
-    }
-    if(as.integer(m[i]) < 10){
-      t[i] = paste(h[i],":0",m[i],sep="")
-    } else {
-      t[i] = paste(h[i],":" ,m[i],sep="")
-    }
-  }
-  return (t)
-}
-time <- clock24()
-
-## plot the number of votes based on time
-plot.new()
-plot.window(xlim=c(0,129), ylim=c(0,600000))
-plot(total_vote$Ding,time,xlim = 129,xlim = c(0,129),add=TRUE)
 ```
+
+The result is same as it comes to current mayor Ko's votes. The media apart from PTS report a ever--flowing votes until they suddenly converged to the real vote population late in the event. 
+
+```{r}
+ggplot(data = media_Ko) +
+  geom_line(mapping =  aes(x = time, y = TTV, group = 1, size = "4"),color = "#3333CC") +
+  geom_line(mapping =  aes(x = time, y = SET, group = 1, size = "4"),color = "#0099CC") +
+  geom_line(mapping =  aes(x = time, y = CTV, group = 1, size = "4"),color = "#00FF66") +
+  geom_line(mapping =  aes(x = time, y = EHS, group = 1, size = "4"),color = "#66FFFF") +
+  
+  
+  geom_line(mapping =  aes(x = t, y = PTS$Ko,group = 1, size = "4"), color="#CC0000")+
+ 
+  labs(x = "time ", y = "numbers of votes", 
+       title = "Votes for Ko (CEC)", caption = "(data from media)") +
+  scale_x_discrete(breaks = PTS$time[seq(1, 129, by = 10)]) +
+  scale_y_continuous(labels= scales::comma)
+
+```
+
+Indeed, saying PTS having less motivates to exaggerate the number is not enough to conclude the accuracy of their estimation on votes. After all, PTS was estimating the votes on their own. We only see that a significant difference exists between the way of counting votes of different media. As the result, we need a another way to confirm whether others media lies or not.
+
+##compare with CEC model
+
+Although the data from CEC (red) is generally higher than the report from PTS(red), other media were still way higher than CEC and PTS in the period of time (peak time).
+
+```{r}
+
+ggplot(data = media_Ding) +
+  geom_line(mapping =  aes(x = time, y = TTV, group = 1, size = "4"),color = "#3333CC") +
+  geom_line(mapping =  aes(x = time, y = SET, group = 1, size = "4"),color = "#0099CC") +
+  geom_line(mapping =  aes(x = time, y = CTV, group = 1, size = "4"),color = "#00FF66") +
+  geom_line(mapping =  aes(x = time, y = EHS, group = 1, size = "4"),color = "#66FFFF") +
+  
+  geom_line(mapping =  aes(x = t, y = CEC$Ding, group = 1, size = "4"), color = "#CC0000") +
+  geom_line(mapping =  aes(x = t, y = PTS$Ding, group = 1, size = "4"), color = "#999999") +
+ 
+  labs(x = "time ", y = "numbers of votes", 
+       title = "Votes for Ding (CEC)", caption = "(data from CEC with ideal model)") +
+  scale_x_discrete(breaks = PTS$time[seq(1, 129, by = 10)]) +
+  scale_y_continuous(labels= scales::comma)
+
+```
+
+Same is Ko's votes.
+
+```{r}
+
+ggplot(data = media_Ko) +
+  geom_line(mapping =  aes(x = time, y = TTV, group = 1, size = "4"),color = "#3333CC") +
+  geom_line(mapping =  aes(x = time, y = SET, group = 1, size = "4"),color = "#0099CC") +
+  geom_line(mapping =  aes(x = time, y = CTV, group = 1, size = "4"),color = "#00FF66") +
+  geom_line(mapping =  aes(x = time, y = EHS, group = 1, size = "4"),color = "#66FFFF") +
+  
+  geom_line(mapping =  aes(x = t, y = CEC$Ke, group = 1, size = "4"), color = "#CC0000") +
+  geom_line(mapping =  aes(x = t, y = PTS$Ko, group = 1, size = "4"), color = "#999999") +
+  labs(x = "time ", y = "numbers of votes", 
+       title = "Votes for Ko (CEC)", caption = "(data from media)") +
+  scale_x_discrete(breaks = PTS$time[seq(1, 129, by = 10)]) +
+  scale_y_continuous(labels= scales::comma)
+
+```
+
+###Bounding Method - idealized curve
+The result is much more interesting when it comes to this CEC model. Remember that CEC only offered a discreat form of data - **the time when the observation post end** and **the total votes of each post**. Different post may have different size, staff, and thus different rate of counting the vote. Therefore, it is impposible to take account for all the variation that may happened in the event. Therefore, we have no alternative but to find another model to represent the voting in reality. 
+ 
+ 
+The way we built the model is by assuming every things is in time and fixed, which is not possible. As we know, any human-associated process cannot avoid overhead or inefficiency, especially being in national scale like mayor election, not to mention there was also a big referendum event held on 11/24, creating a huge snurl-up in every observation post. It will not be surprise to see the real curve for votes will be gentler, in which many observation post delayed.
+
+###Evidence - overestimated votes
+Given the above conditions, it is very unlikely the votes in reality have any chance to exceed the modeled curve. And the fact that all the sample data, except for PTS, have an overflows of votes during the rushing hour(16:00~20:00), give us conviction to accuse these media of forging statistics, which is totally not surprising.
+
+
+#Conclusion
+Those votes data from sample media differs with that of PTS's. Since PTS is a more realible source in terms of reputation, a doubt was incured on the creditibility of sample media. Moreover, with the idealized model generated from the real data from CEC, and a bit induction, we have evidence to conclude an overstatement of votes from media.
+
+
+
+
+
+
+
+
 
