@@ -1,0 +1,402 @@
+---
+title: "Text Analytics"
+output: html_notebook
+---
+
+#Abstract
+
+This notebook is for the homework 4~6 required in the Data Structure and Programming Design course. I use the "SMS Spam Collection Dataset" to do some text analytics. The data can be acquire from *kaggle* at [here](https://www.kaggle.com/uciml/sms-spam-collection-dataset).
+
+
+#Goal
+Telecommunication has always been an important aspect in the progress of our civilization. Days of waiting for the letters oversea now becomes an instant second of satellite transmission that beamed from the outer space. With the affordable cost and an efficient communication, the imformation explodes nowadays. Nevertheless, the abundant imformation seems to not be a bless, but a setback. When I started my college life, there came more and more works requiring continouosly scrutiny. Notifications from Social media, messenges from the IM software, checking requirment of assignment from school in the web and ring from my cellphone. These are all nightmare for me. To alleviate the problems, I started reduce the channel I used for communication. I told my friend only send a SMS to me in emergency, because I was discouraged from answering the call by lots of robo-calls. I seldom updates my social media, howbeit it costs me my connections to people. Mail and e-mail now becomes my main channel to buffered communication with people. Sill, as there is robo-calls for cellphone, there is also spam mail for mail. It will be proper if there is a way for the sofware to automatically detect the mail in advance and filter out those fake messenge. Otherewise, I will have to cut out all sorts of communication (It is still a way, though).<br />
+
+In this homework, I want to build a model that can read the messenge on tje SMS and classify it between **ham** (good) and **spam** (fake) mail. In this way, I can then write a self-programs to filter out the spam mail.
+
+
+
+# Method
+I gonna divid my work into into 3 parts:
+    1.Raw Data Processing
+    2.Training Data Processing
+    3.Building the model
+    4.Testing
+
+##1. Raw Data Processing
+
+###Intall required packages
+I am using the ***ggplot2***, ***gridExtra*** library for the later visulization, ***e1071*** and ***caret*** library to arrange the data, ***quanteda*** library to do the majority of the text analytics, ***irlba*** library for some singular value decomposition and ***randomForest*** library for feature engineering and ***lsa*** for calculating the cosine similarity. We first install all the needed packages.
+```{r}
+install.packages(c("ggplot2","gridExtra","e1071", "caret", "quanteda", "irlba", "randomForest","doSNOW","lsa"))
+```
+
+### Load the data
+We then load the csv data.
+```{r}
+raw <- read.csv("spam.csv",stringsAsFactors = FALSE)
+head(raw)
+```
+The raw data contains serveral columns. The first column is the label of whether the SMS messenge is spam mail or not(ham). The second is the text for the given mail. The rest of the columns are redunctant, so we remove them and names the column for the filtered data.
+
+### Clean the data
+```{r}
+raw <- raw[, 1:2]
+names(raw) <- c("Label", "Text")
+head(raw)
+```
+Besides, we check whether missing values exist.
+```{r}
+sum(which(!complete.cases(raw)))
+```
+Thanks to the reliable source of data, there is no missing value. Now, the data is compact and clean. We can move on and explore it.
+
+### Explore Raw Data
+
+#### Distribution of the Label
+Firstly, we need to know how frequent it is to receive a spam mail.
+```{r}
+raw$Label <- as.factor(raw$Label)
+nrow(raw)
+prop.table(table(raw$Label))
+```
+There are in toal 5572 piece of mail. and the propotion of the spam mail is about 13%, which is not a insignificant difference. This non-trival imbalance may be an important factor to take into account. 
+
+#### Length of Text
+Secondly, we add a new feature for the length of the text, which may be a good determinant for spam detection.
+```{r}
+raw$Length <- nchar(raw$Text)
+summary(raw$Length)
+```
+From the basic statistic, the range implies a great disparity, from minimum 2 charactors up to at most 910 letters. The median infer half of the length of text is smaller than 61, and the 19 charactors difference between the median and mean also implies a substantial skewness of the data. We use **ggplot22** to visualize the discovery.
+```{r}
+m<- c(mean(raw$Length[raw$Label=="ham"]),mean(raw$Length[raw$Label=="spam"]))
+library(ggplot2)
+ggplot(raw, aes(x = Length, fill = Label)) +
+  theme_bw() +
+  geom_histogram(binwidth = 5,alpha=.5, position = "identity") +
+  geom_vline(aes(xintercept=m[1],  colour="blue"),
+               linetype="dashed", size=1)+
+  geom_vline(aes(xintercept=m[2],  colour="red"),
+               linetype="dashed", size=1)+
+  labs(y = "Frequency", x = "Length of Text", title = "Distribution of Text Lengths")
+```
+From the histogram, we can see that not only the mean of  the spam and the ham mail are different, but their direction of the skewness are also directs reversely. To be formal, let's  confirm the difference between the text length of ham and spam mail with statistical evidence.
+```{r}
+ham <- raw$Length[raw$Label == "ham"]
+spam <- raw$Length[raw$Label == "spam"]
+shapiro.test(ham)
+shapiro.test(spam)
+```
+Both distribution of the text length are non-normal, so we conduct the Wilcoxon Ranl Sum Test to test the population difference. 
+$$H_0:The\ distribution\ of\ the\ text\ length\ of\ ham\ and\ spam\ mail\ are\ the\ same$$
+$$H_1:The\ distributions\ are\ different$$
+```{r}
+alldata <- sort(c(ham, spam))
+tmpdf = data.frame(raw=alldata, rank=1:length(alldata))
+avgrank = aggregate(tmpdf, by=list(tmpdf$raw), FUN=mean)
+avgrank$Group.1 = NULL
+samp1 = data.frame(raw=ham)
+samp1 = merge(samp1, avgrank)
+T = sum(samp1$rank)
+n1 = length(ham); n2=length(spam)
+ET = n1*(n1+n2+1)/2
+SigmaT = sqrt(n1*n2*(n1+n2+1)/12)
+z = (T-ET)/SigmaT
+print(pnorm(z))
+```
+Because of an extremely small p-value of the Wilcoxon Ranl Sum Test, we have overwhelming evidence to infer that the text length of the ham and spam mail are different.
+
+
+##2. Training Data Processing
+
+###Split the Data
+In order to improve the model later, we segment the data into the two parts, one for training and the other testing. To do that, we use ***caret*** library to create a random 70/30 split, which will maintain the relative proportions of the origin, that is, about 87% ham and 13% spam.
+```{r}
+library(caret)
+set.seed(32984)
+index <- createDataPartition(raw$Label, times = 1, p = 0.7, list = FALSE)
+train <- raw[index,]
+test <- raw[-index,]
+```
+
+After the split, we verify the assumed propotion of the label.
+```{r}
+library("gridExtra")
+p1 <- ggplot(train, aes(x = Length, fill = Label)) +
+  theme_bw() +
+  geom_histogram(binwidth = 5,alpha=.5, position = "identity") +
+  geom_vline(aes(xintercept=m[1],  colour="blue"),
+               linetype="dashed", size=1)+
+  geom_vline(aes(xintercept=m[2],  colour="red"),
+               linetype="dashed", size=1)+
+  labs(y = "Frequency", x = "Length of Text", title = "Distribution of Training Data")
+p2 <- ggplot(test, aes(x = Length, fill = Label)) +
+  theme_bw() +
+  geom_histogram(binwidth = 5,alpha=.5, position = "identity") +
+  geom_vline(aes(xintercept=m[1],  colour="blue"),
+               linetype="dashed", size=1)+
+  geom_vline(aes(xintercept=m[2],  colour="red"),
+               linetype="dashed", size=1)+
+  labs(y = "Frequency", x = "Length of Text", title = "Distribution of Testing Data")
+grid.arrange(p1, p2, nrow = 2)
+```
+
+### Tokenization
+We discompose the training data into tokens, in which the punctuation, pure numbers, stytax symbols and hyphens are removed. In addition, we also turn the capital charactor into lower case, remove the the stopword and stem the similar word to the same token in order to reduce the overall complexity of the model.
+```{r}
+library(quanteda)
+train.tokens <- tokens(train$Text, what = "word",  remove_numbers = TRUE, remove_punct = TRUE, remove_symbols = TRUE, remove_hyphens = TRUE)
+
+train.tokens <- tokens_tolower(train.tokens)
+train.tokens <- tokens_select(train.tokens, stopwords(), selection = "remove")
+train.tokens <- tokens_wordstem(train.tokens, language = "english")
+```
+
+#### N-grams
+We also want to take the word-ordering into account, which may become an important feature providing imformation to the model. We add the bi-grams to the training data. 
+```{r}
+train.tokens <- tokens_ngrams(train.tokens, n = 1:2)
+```
+
+After the bi-grams-tokenization finish, we create a document-feature matrix to represent the data, and turn it into a dataframe. Also, we clan up the column names just in fear of the invalid column name appears.
+```{r}
+train.tokens.dfm <- dfm(train.tokens, tolower = FALSE)
+train.tokens.matrix <- as.matrix(train.tokens.dfm)
+train.tokens.df <- cbind(Label = train$Label, convert(train.tokens.dfm,to = "data.frame"))
+names(train.tokens.df) <- make.names(names(train.tokens.df))
+```
+
+#### Normalize Matrix with TF-IDF
+To further enhance the efficiency of the model, let's also apply the  TF_IDF to normalize the matrix. We define our own TF and IDF function, and perform some data cleaning.
+```{r}
+##TF function
+term.frequency <- function(row) {
+  row / sum(row)
+}
+##IDF function
+inverse.doc.freq <- function(col) {
+  corpus.size <- length(col)
+  doc.count <- length(which(col > 0))
+  log10(corpus.size / doc.count)
+}
+##TF_TDF function
+tf.idf <- function(tf, idf) {
+  tf * idf
+}
+
+train.tokens.df <- apply(train.tokens.matrix, 1, term.frequency)
+train.tokens.idf <- apply(train.tokens.matrix, 2, inverse.doc.freq)
+train.tokens.tfidf <-  apply(train.tokens.df, 2, tf.idf, idf = train.tokens.idf)
+train.tokens.tfidf <- t(train.tokens.tfidf)
+```
+
+#### Clean up data
+```{r}
+##incomplete case
+incomplete.cases <- which(!complete.cases(train.tokens.tfidf))
+train.tokens.tfidf[incomplete.cases,] <- rep(0.0, ncol(train.tokens.tfidf))
+
+train.tokens.tfidf.df <- cbind(Label = train$Label, data.frame(train.tokens.tfidf))
+names(train.tokens.tfidf.df) <- make.names(names(train.tokens.tfidf.df))
+```
+
+### LSA
+We now use tje ***irlba*** library to perform a Latent Semeantic Analysis to extract the singular vector of the matrix to attain the higher-level concepts in terms of our data and reduce it into 300 column. Then we map the previous TF-IDF document into the SVD at its semantic space.
+```{r}
+library(irlba)
+train.irlba <- irlba(t(train.tokens.tfidf), nv = 300, maxit = 600)
+
+sigma.inverse <- 1 / train.irlba$d
+u.transpose <- t(train.irlba$u)
+document <- train.tokens.tfidf[1,]
+document.hat <- sigma.inverse * u.transpose %*% document
+```
+
+### Create Refined Feature Data
+Now we create a new dataframe with the original label and the 300 new features derieved from the LSA. This data become our new training data, which not only has a reduced dimension but a higher-level relationships between terms and document.
+```{r}
+train.svd <- data.frame(Label = train$Label, train.irlba$v)
+```
+
+##3. Building the Model
+
+### Sample for Cross-Validation
+Because of the non-trival imbalance of the label previously obsered, we need to make sure that each sampling we takes is representative to the proportion of the labe, by creating 30 random stratified samples.
+```{r}
+set.seed(48743)
+cv.folds <- createMultiFolds(train$Label, k = 10, times = 3)
+cv.cntrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3, index = cv.folds)
+```
+
+###Random Forest Model
+We build the very first model for spam mail prediction with a random tree model by using the refined data we got. The calculation is time comsuming, so I package the result with the Rdata file. Feel free to run the code.
+```{r}
+library(doSNOW)
+cl <- makeCluster(3, type = "SOCK")
+
+rf.cv.1 <- train(Label ~ ., data = train.svd, method = "rf", 
+                 trControl = cv.cntrl, tuneLength = 7)
+stopCluster(cl)
+```
+```{r}
+load("rf.cv.1.RData")
+rf.cv.1
+confusionMatrix(train.svd$Label, rf.cv.1$finalModel$predicted)
+```
+From the confusion matrix, we can see that the total accuracy of the mail classification of the model is up to 96%. It is not a bad figure in terms of MC model, but we find that the sensitivity is lower than the specificity, which mean the model is worse at specify the ham mail. Normally, a getaway spam mail is more acceptable than a accidently removed letter. In this scenario, Type 1 error is more unaccepted.
+
+
+###Add Feature of Length
+To improve the sensitivity of the model, we can add another decisive feature for ham and spam mail. Recall in the previous section, we find that the length of the text is indeed a good factor to account for.
+```{r}
+m<- c(mean(raw$Length[raw$Label=="ham"]),mean(raw$Length[raw$Label=="spam"]))
+ggplot(raw, aes(x = Length, fill = Label)) +
+  theme_bw() +
+  geom_histogram(binwidth = 5,alpha=.5, position = "identity") +
+  geom_vline(aes(xintercept=m[1],  colour="blue"),
+               linetype="dashed", size=1)+
+  geom_vline(aes(xintercept=m[2],  colour="red"),
+               linetype="dashed", size=1)+
+  labs(y = "Frequency", x = "Length of Text", title = "Distribution of Text Lengths")
+```
+We add in the length into the training data, and run for the random tree again.
+```{r}
+train.svd$Length <- train$Length
+
+ cl <- makeCluster(3, type = "SOCK")
+ registerDoSNOW(cl)
+
+ rf.cv.2 <- train(Label ~ ., data = train.svd, method = "rf",
+                 trControl = cv.cntrl, tuneLength = 7, 
+                 importance = TRUE)
+
+stopCluster(cl)
+```
+The result is also precompiled.
+```{r}
+load("rf.cv.2.RData")
+rf.cv.2
+confusionMatrix(train.svd$Label, rf.cv.2$finalModel$predicted)
+```
+By adding the length feature, the specificity for the spam mail increase significantly high, but we only correct 7 cases of type 1 error compared to the previous model. We visulize the difference between adding new feature with plot.
+```{r}
+library(randomForest)
+varImpPlot(rf.cv.1$finalModel)
+varImpPlot(rf.cv.2$finalModel)
+```
+Those X variables are the underlying factor of the text for the spam detection model. We do not even know what does the variable really mean, but it doesn't matter. Surprisingly, in the second plot, we observe that the added Length feature outweight the all the importance of those X variables in terms of the model. That is, the text length itself is really a good indicators. 
+ 
+ 
+### Cosine Similarity
+We also use the ***lsa*** library to add the feature of cosine similarity to the model. The value was added to the new column, and we can visulize the differentiation between the ham and spam mail with a histogram.
+```{r}
+train.similarities <- cosine(t(as.matrix(train.svd[, -c(1, ncol(train.svd))])))
+
+spam.indexes <- which(train$Label == "spam")
+train.svd$SpamSimilarity <- rep(0.0, nrow(train.svd))
+for(i in 1:nrow(train.svd)) {
+  train.svd$SpamSimilarity[i] <- mean(train.similarities[i, spam.indexes])  
+}
+
+ggplot(train.svd, aes(x = SpamSimilarity, fill = Label)) +
+  theme_bw() +
+  geom_histogram(binwidth = 0.05) +
+  labs(y = "Frequency",
+       x = "Mean Spam Cosine Similarity",
+       title = "Distribution of Ham and Spam (Spam Cosine Similarity)")
+```
+The distribution of the cosine similarity seems to be wildly different. We now build a new random tree with this new feature. Again, the result was precalculated.
+```{r}
+cl <- makeCluster(3, type = "SOCK")
+registerDoSNOW(cl)
+ 
+rf.cv.3 <- train(Label ~ ., data = train.svd, method = "rf",
+               trControl = cv.cntrl, tuneLength = 7,
+                importance = TRUE)
+
+stopCluster(cl)
+```
+```{r}
+##load("rf.cv.3.RData")
+rf.cv.3
+confusionMatrix(train.svd$Label, rf.cv.3$finalModel$predicted)
+```
+With the cosine similarity feature, the accuracy of the new model increases to 0.978. The accuracy of the sensitivity was sucessfully enhanced, but the spacificity dropped this time. In the scenario of spam mail detection, we are likely to prefer a better sensitivity of the model to the specificity. The improvement can also be seen with the significant difference of the improtance in the following graph.
+```{r}
+varImpPlot(rf.cv.3$finalModel)
+```
+
+##4. Testing
+### Tokenization.
+In order to test the testing data we split early, we need to convert it into the correct format. Besides, we also need to transform the testing data into exactly what the training data looks like, to do the prediction.
+```{r}
+test.tokens <- tokens(test$Text, what = "word", 
+                      remove_numbers = TRUE, remove_punct = TRUE,
+                      remove_symbols = TRUE, remove_hyphens = TRUE)
+test.tokens <- tokens_tolower(test.tokens)
+test.tokens <- tokens_select(test.tokens, stopwords(), 
+                             selection = "remove")
+test.tokens <- tokens_wordstem(test.tokens, language = "english")
+test.tokens <- tokens_ngrams(test.tokens, n = 1:2)
+test.tokens.dfm <- dfm(test.tokens, tolower = FALSE)
+
+##form
+test.tokens.dfm <- dfm_select(test.tokens.dfm, pattern = train.tokens.dfm,selection = "keep")
+test.tokens.matrix <- as.matrix(test.tokens.dfm)
+
+##IF_IDF
+test.tokens.df <- apply(test.tokens.matrix, 1, term.frequency)
+
+test.tokens.tfidf <-  apply(test.tokens.df, 2, tf.idf, idf = train.tokens.idf)
+test.tokens.tfidf <- t(test.tokens.tfidf)
+
+# Fix incomplete cases
+test.tokens.tfidf[is.na(test.tokens.tfidf)] <- 0.0
+```
+With the test data projected into the TF-IDF vector space of the training, It can then be projected into the training LSA semantic. We also add the length and the similarity into the SVD to take advantage of the extra feature we derieved.
+```{r}
+test.svd.raw <- t(sigma.inverse * u.transpose %*% t(test.tokens.tfidf))
+test.svd <- data.frame(Label = test$Label, test.svd.raw, 
+                       Length = test$Length)
+test.similarities <- rbind(test.svd.raw, train.irlba$v[spam.indexes,])
+test.similarities <- cosine(t(test.similarities))
+
+test.svd$SpamSimilarity <- rep(0.0, nrow(test.svd))
+spam.cols <- (nrow(test.svd) + 1):ncol(test.similarities)
+for(i in 1:nrow(test.svd)) {
+  test.svd$SpamSimilarity[i] <- mean(test.similarities[i, spam.cols])  
+}
+test.svd$SpamSimilarity[!is.finite(test.svd$SpamSimilarity)] <- 0
+```
+Now we can finally predict on the test data.
+```{r}
+preds <- predict(rf.cv.3, test.svd)
+confusionMatrix(preds, test.svd$Label)
+```
+With the test data, we only make the correct prediction on a 86% basic. It is normal to see the gap between the accuracy of the trianing and the testing data becasue of the problem of overfitting.
+
+###Alleviate the Overfitting
+It seems that the model was bounded to the training data too closely. Let's try to remove the cosine similarity to reduce the dependency to the training data.
+```{r}
+set.seed(254812)
+train.svd$SpamSimilarity <- NULL
+test.svd$SpamSimilarity <- NULL
+
+cl <- makeCluster(10, type = "SOCK")
+registerDoSNOW(cl)
+
+rf.cv.4 <- train(Label ~ ., data = train.svd, method = "rf",
+                 trControl = cv.cntrl, tuneLength = 7,
+                importance = TRUE)
+stopCluster(cl)
+
+
+load("rf.cv.4.RData")
+
+preds <- predict(rf.cv.4, test.svd)
+confusionMatrix(preds, test.svd$Label)
+```
+With the more general but desicive feature of the length of the text being hte lading indicator, the model becomes more acceptable to the test data, and conduct the prediction with a high score - up to 99% accuracy of detecting the ham mail, but fail to filter any spam mail.
+
+#Conclusion
+We start by processing the data, from cleaning the raw source to apply many advance technique like TF-IDF and bi-grams, just to name a few. With the suitable data form, we calls library to convert the training data into random forest model. The model was then refined for serveral times, each time we add a new feature to the model. In the eand,  We try the model with the testing data, and soon encounter the overfitting problem. Finally, we can make a correct prediction on the mail fourth in five.  There are still rooms to improve. For example, we can add more features, more traing data, more comination of grams, etc. Still, that will be the future project. At least for now, I can say this is my text anlytic homework for this time. Thanks for viewing! 
