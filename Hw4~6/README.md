@@ -20,4 +20,4 @@ There are in total 4 processes:
 </ol>
 Detail of the works are all specified in the R markdown file, here is the link: 
  
-[display](https://dasvision0212.github.io/)
+[click here to see the display](https://dasvision0212.github.io/CSX_DSPD_Spring_2018/Hw4~6/hw6.nb.html)
